@@ -155,6 +155,63 @@ async function searchAwardAvailability(params) {
 }
 
 // ---------------------------------------------------------------------------
+// Seats.aero: list routes a program tracks, optionally filtered by origin
+// airport and/or destination region (e.g. "Europe"). Useful for building a
+// destination list before running search_award_availability across all of
+// them at once, since Seats.aero has no native "any country in a region"
+// search parameter.
+// ---------------------------------------------------------------------------
+const listAwardRoutesSchema = z.object({
+  source: z.string().default("united").describe("Loyalty program, e.g. 'united'"),
+  originAirport: z.string().optional().describe("Filter to routes from this origin airport, e.g. SFO"),
+  destinationRegion: z
+    .string()
+    .optional()
+    .describe("Filter to routes whose DestinationRegion matches this (case-insensitive substring), e.g. 'Europe'"),
+});
+
+async function listAwardRoutes(params) {
+  if (!SEATS_AERO_API_KEY) {
+    throw new Error("Server misconfigured: SEATS_AERO_API_KEY is not set");
+  }
+  const { source, originAirport, destinationRegion } = params;
+
+  const resp = await fetch(`https://seats.aero/partnerapi/routes?source=${encodeURIComponent(source)}`, {
+    headers: {
+      "Partner-Authorization": SEATS_AERO_API_KEY,
+      Accept: "application/json",
+    },
+  });
+
+  const json = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    throw new Error(`Seats.aero error: HTTP ${resp.status} - ${JSON.stringify(json).slice(0, 500)}`);
+  }
+
+  let routes = Array.isArray(json) ? json : [];
+
+  if (originAirport) {
+    routes = routes.filter((r) => r.OriginAirport === originAirport.toUpperCase());
+  }
+  if (destinationRegion) {
+    const needle = destinationRegion.toLowerCase();
+    routes = routes.filter((r) => (r.DestinationRegion ?? "").toLowerCase().includes(needle));
+  }
+
+  const destinationAirports = [...new Set(routes.map((r) => r.DestinationAirport))].sort();
+
+  return {
+    source,
+    originAirport: originAirport ?? null,
+    destinationRegion: destinationRegion ?? null,
+    routeCount: routes.length,
+    destinationAirports,
+    routes,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // MCP tool registration
 // ---------------------------------------------------------------------------
 const toMcpResponse = (value) => ({
@@ -187,6 +244,19 @@ const registerTools = (server) => {
     async (params) => {
       try {
         return toMcpResponse(await searchAwardAvailability(params));
+      } catch (err) {
+        return toMcpError(err);
+      }
+    }
+  );
+
+  server.tool(
+    "list_award_routes",
+    "List every route a Seats.aero loyalty program tracks, optionally filtered by origin airport and/or destination region (e.g. 'Europe'). Use this to build a destination airport list, then pass that comma-delimited list into search_award_availability's destination param, since Seats.aero has no built-in 'any country in a region' search.",
+    listAwardRoutesSchema.shape,
+    async (params) => {
+      try {
+        return toMcpResponse(await listAwardRoutes(params));
       } catch (err) {
         return toMcpError(err);
       }
@@ -281,7 +351,7 @@ const startHttp = async () => {
   app.get("/health", (_req, res) => {
     res.json({
       status: "ok",
-      tools: 2,
+      tools: 3,
       duffelConfigured: Boolean(DUFFEL_API_KEY),
       seatsAeroConfigured: Boolean(SEATS_AERO_API_KEY),
     });
@@ -289,7 +359,7 @@ const startHttp = async () => {
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
   app.listen(port, () => {
-    console.error(`travel-deals-mcp running on http://0.0.0.0:${port}/mcp (2 tools)`);
+    console.error(`travel-deals-mcp running on http://0.0.0.0:${port}/mcp (3 tools)`);
   });
 };
 
