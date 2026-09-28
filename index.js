@@ -107,7 +107,7 @@ const searchAwardAvailabilitySchema = z.object({
     .default("united")
     .describe("Loyalty program(s) to search, comma-delimited, e.g. 'united' or 'united,aeroplan'"),
   onlyDirectFlights: z.boolean().optional(),
-  maxResults: z.number().int().min(1).max(100).default(25),
+  maxResults: z.number().int().min(1).max(1000).default(25).describe("Seats.aero's real cap is 1000. Use a high value for broad multi-destination searches."),
 });
 
 async function searchAwardAvailability(params) {
