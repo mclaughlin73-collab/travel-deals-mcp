@@ -130,7 +130,7 @@ async function searchAwardAvailability(params) {
 
   const resp = await fetch(`https://seats.aero/partnerapi/search?${query.toString()}`, {
     headers: {
-      "Partner-Authorization": `Bearer ${SEATS_AERO_API_KEY}`,
+      "Partner-Authorization": SEATS_AERO_API_KEY,`,
       Accept: "application/json",
     },
   });
